@@ -7,9 +7,10 @@ logs/
 *.mp4
 *.log
 
-# Isaac 资产缓存
-assets/poppy/poppy.usd
-*.usd.bak
+# Isaac Sim 生成物：由 URDF + mesh 一条命令重新转换即可得到
+assets/poppy/*.usd
+assets/poppy/*.usd.bak
+assets/poppy/configuration/
 
 # Python
 __pycache__/
