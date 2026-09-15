@@ -1,0 +1,17 @@
+# 训练产物
+out/
+logs/
+*.pth
+*.pt
+*.onnx
+*.mp4
+*.log
+
+# Isaac 资产缓存
+assets/poppy/poppy.usd
+*.usd.bak
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
