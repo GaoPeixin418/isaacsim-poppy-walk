@@ -49,12 +49,12 @@ D3 就用官方的 velocity locomotion 结构，把速度指令范围设成全 0
 | dof_acc_l2             | −1e-7 | 关节加速度过大（真机上会让舵机齿轮受冲击） |
 | action_rate_l2         | −0.02 | 控制量高频抖动（50 Hz 下的相邻动作差） |
 | undesired_contacts     | −1.0 | 用躯干/大腿触地"爬"过去（同时有终止项兜底） |
-| **feet_air_time**      | **+3.0** | **最重要的步态项**：不给的话策略会发明"滑步"——两脚一直贴地、靠摩擦推着走。它奖励"单脚支撑 + 另一脚在空中待够时间"。<br>权重/threshold 在 D4 第一次训练后从 1.0/0.3 调成 3.0/0.2（原因见 `WalkRewardsCfg` 里的长注释） |
+| **feet_air_time**      | **+2.0** | **最重要的步态项**（落步事件版）：只在脚落地那一瞬给 `(腾空−0.2)`、封顶 0.15。不给会学"滑步"（两脚贴地蹭）；用"每步都给分"的版本（D4）会学"单腿跛行"（一只脚永久悬空白拿满分，D5 评估实测抓到） |
+| **feet_hover**         | **−2.0** | 悬空超时惩罚：腾空 >0.5 s 后持续罚 —— 直接封死"永久悬空"（正常步态腾空 0.2~0.4 s 不触发） |
 | **feet_slide**         | **−0.2** | 脚在地上滑（与 air_time 互补：一个管"抬起来"，一个管"落地后别蹭"） |
 
-`feet_air_time` 用的是官方的 `feet_air_time_positive_biped`（双足专用版）：
-只在"恰好单脚支撑"时给分，并且指令速度接近 0 时直接给 0
-（否则策略会发现"只要站着不动就一直单脚支撑"能白拿分）。
+`feet_air_time` / `feet_hover` 是本包自写的（`walking/mdp.py`），各自的"为什么不用官方版"
+写在那个文件里 —— 一句话：官方双足版缺"左右轮换"约束，官方落步版缺"腾空时长封顶"。
 
 > ★ **奖励权重怎么看（D4 学到的）**：权重的绝对值没有意义，
 > **只有"该项的理论最大值 与 主任务项理论最大值 的比例"才有意义**。
@@ -85,10 +85,9 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
 import isaaclab.envs.mdp as mdp
-from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
-    feet_air_time_positive_biped,
-    feet_slide,
-)
+from isaaclab_tasks.manager_based.locomotion.velocity.mdp import feet_slide
+
+from .mdp import feet_air_time_landing, feet_hover_penalty
 
 from ....assets.poppy import POPPY_CFG, WALK_PELVIS_Z, walk_default_joint_pos
 from ..common import FOOT_BODIES, CommandsCfg, PoppyBaseEnvCfg, RewardsCfg
@@ -160,34 +159,46 @@ class WalkRewardsCfg(RewardsCfg):
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
-    # ---- 步态项 ----
-    # 抬脚时间：奖励"单脚支撑、另一脚在空中待够时间"。
+    # ---- 步态项（D5 第二次修订：换掉可被"单腿跛行"攻破的奖励结构） ----
     #
-    # ★ 权重从 1.0 提到 3.0、阈值从 0.3 降到 0.2 —— 这是 D4 第一次训练的教训 ★
-    #   第一次训练（2048 环境）在第 200 轮就平台化了，诊断证据：
-    #       feet_air_time 实测只有 0.0068 /s，而该项的理论最大值是 权重×阈值 = 0.3 /s
-    #       → 只拿到 2.3% → "恰好单脚支撑"这个状态几乎从未出现（两脚一直贴地）
-    #   根因是**量级失衡，而且能算出来**：
-    #       speed tracking 最大 1.5 /s，步态信号只有 0.3 /s → 占主任务的 20%
-    #   对比官方 Cassie 平地行走：2.5 × 0.3 = 0.75 /s vs track 2.0 /s → 占 37.5%
-    #   我原来给 1.0 只有 Cassie 的 40%。（当时写的理由是"0.125 太低、5.0 太高取中间"
-    #   —— 但没算它和主任务项的比例。**奖励权重的意义只在"和主任务项的比例"里存在，
-    #   绝对值没有意义**，这是这次真正该记住的失误。）
+    # ★ D4→D5 的教训：`feet_air_time_positive_biped` 的漏洞 ★
+    #   它**每个控制步**只要"恰好一只脚在地上"就给分 —— 这意味着把一只脚
+    #   永久抬着就能恒定拿满分。D5 首次量化评估抓到了实证：
+    #       左脚离地时间占比 100%、足底接触力恒 0.00 N（全程悬空）、
+    #       右脚独撑全部体重（21.3 N ≈ 2.6 kg × 9.8）—— 单腿跛行。
+    #   速度跟踪 0.238 m/s、存活 100% 都是真的，唯独步态是坏的。
     #
-    #   现在：3.0 × 0.2 = 0.6 /s，占主任务 40%，与 Cassie 同量级。
+    # 修复（一次改动，同一个目标"给奖励补上轮换约束"）：
+    #   1. 换成【落步事件版】feet_air_time_landing（自写，官方 feet_air_time
+    #      的封顶变体）：只在脚落地那一瞬给 (腾空 - 阈值)、封顶 max_bonus。
+    #      跛行状态下没有"重新落地"事件 → 该项恒 0，作弊动力消失。
+    #      封顶防的是下一个作弊解：不封顶时单次奖励随腾空时长线性涨，
+    #      策略会转向"单脚跳 prolong 腾空"。
+    #   2. 新增悬空超时惩罚 feet_hover_penalty：腾空 > 0.5 s 后每步都罚、
+    #      越悬越重（超时量封顶 1 s，惩罚 -2.0/s 封顶）。
+    #      正常步态腾空 0.2~0.4 s 完全不触发；"永久悬空"从满分变成重罚。
     #
-    # 阈值为什么同时也降（0.3 → 0.2）：这是**早期塑形**。
-    #   单脚支撑要达到 0.3 s 对 Poppy 偏难（脚只有 4.6 cm 宽、无踝侧摆），
-    #   阈值给 0.2 s 让"抬一点点脚"就能拿到部分分，先把它推离"两脚贴地滑动"，
-    #   等策略真的会迈步了再考虑调回 0.3。**一次只动一个方向上的变量，
-    #   这样如果曲线变了能明确归因。**
+    # 量级核算（沿用"理论最大值 ÷ 主任务理论最大值"原则）：
+    #   健康步态（腾空 ~0.3 s、阈值 0.2、封顶 0.15）：每次落地拿 ~0.10，
+    #   每秒落地 ~2/0.7 ≈ 2.9 次 → 未加权 ~0.29 /s；权重 2.0 → ~0.58 /s
+    #   vs 速度跟踪 1.5 /s → 占 ~39%，与官方 Cassie（37.5%）同量级。
     feet_air_time = RewTerm(
-        func=feet_air_time_positive_biped,
-        weight=3.0,
+        func=feet_air_time_landing,
+        weight=2.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=FOOT_BODIES),
             "command_name": "base_velocity",
             "threshold": 0.2,
+            "max_bonus": 0.15,
+        },
+    )
+    # 悬空超时（防单腿跛行的直接封条；见上）
+    feet_hover = RewTerm(
+        func=feet_hover_penalty,
+        weight=-2.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=FOOT_BODIES),
+            "max_air_time": 0.5,
         },
     )
     # 脚打滑：脚在接触状态下的水平速度范数。与 air_time 互补 ——
