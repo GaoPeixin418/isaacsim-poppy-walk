@@ -16,3 +16,6 @@ assets/poppy/configuration/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Hydra 输出目录
+outputs/
