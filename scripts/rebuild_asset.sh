@@ -16,7 +16,8 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-REPO=/data/poppy/poppy-walking
+# 仓库位置从脚本自身推导（不写死，本地/服务器都能用）
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URDF_DIR=$REPO/assets/poppy/urdf
 AXIS_FLAG="${1:-}"
 

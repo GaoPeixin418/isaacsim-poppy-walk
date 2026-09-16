@@ -14,23 +14,32 @@
 #   那是给几十上百 N·m 的大机器人用的量级，对 Poppy 会直接数值爆炸。
 
 set -u
-PROJ=/data/poppy
-URDF_DIR=$PROJ/poppy-walking/assets/poppy/urdf
-OUT_DIR=$PROJ/poppy-walking/assets/poppy
-LAB=$PROJ/src/IsaacLab
-PY=$PROJ/envs/poppy/bin/python
+# 路径解析优先级：环境变量（本地/其他机器）> 服务器默认值。
+# 仓库位置从脚本自身推导（不写死），跨机器可用。
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+URDF_DIR=$REPO/assets/poppy/urdf
+OUT_DIR=$REPO/assets/poppy
+LAB="${ISAACLAB_ROOT:-/data/poppy/src/IsaacLab}"
+if [ -n "${POPPY_PYTHON:-}" ]; then
+  PY=$POPPY_PYTHON
+else
+  PY=/data/poppy/envs/poppy/bin/python
+fi
 
-export TMPDIR=$PROJ/tmp
-export PIP_CACHE_DIR=$PROJ/cache/pip
+# 缓存/临时目录：只在服务器上重定向到数据盘（本地用系统默认即可）
+if [ -d /data/poppy ] && [ -z "${POPPY_PYTHON:-}" ]; then
+  export TMPDIR=/data/poppy/tmp
+  export PIP_CACHE_DIR=/data/poppy/cache/pip
+  mkdir -p "$TMPDIR"
+fi
 # Kit 启动前会交互式询问是否接受 NVIDIA Omniverse EULA。
 # 非交互式执行（nohup/CI）必须用环境变量替代人工确认，否则直接 EOFError 崩掉。
 # 这是 NVIDIA 官方为无头/CI 场景提供的开关，等价于在提示符下回答 Yes。
 export OMNI_KIT_ACCEPT_EULA=YES
 export ACCEPT_EULA=Y
 export PRIVACY_CONSENT=Y
-mkdir -p "$TMPDIR"
 
-cd "$LAB" || { echo "FAILED: 找不到 IsaacLab 目录"; exit 1; }
+cd "$LAB" || { echo "FAILED: 找不到 IsaacLab 目录（$LAB）"; exit 1; }
 
 echo "##### 转换 1/2: full（25 DOF，限位核对用） #####"
 "$PY" scripts/tools/convert_urdf.py \

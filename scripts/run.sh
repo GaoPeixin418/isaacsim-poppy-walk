@@ -20,6 +20,16 @@ export PYTHONUNBUFFERED=1
 # 注：~/.cache 在 D1 已经软链到 /data/poppy/cache_real，缓存不会落到 59GB 的系统盘，
 # 所以这里不要再去覆盖 XDG_CACHE_HOME —— 多一层覆盖只会多一个出错点。
 
+# 可移植性：设了 POPPY_PYTHON（本地/其他机器）就直接用它，跳过服务器的 conda。
+# 本地用法示例（Isaac Lab 自带的 python）：
+#   POPPY_PYTHON=<IsaacLab>/isaaclab.sh 会展开成 python -p ... 不方便，
+#   实际上本地推荐：POPPY_PYTHON=<IsaacLab>/_isaac_sim/python.exe bash scripts/run.sh ...
+if [ -n "${POPPY_PYTHON:-}" ]; then
+  cd "$(dirname "$0")/.."
+  exec "$POPPY_PYTHON" "$@"
+fi
+
+# 服务器默认：数据盘 conda 环境
 source /miniconda3/etc/profile.d/conda.sh
 conda activate poppy
 
