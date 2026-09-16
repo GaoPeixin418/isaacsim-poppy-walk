@@ -36,18 +36,26 @@ def feet_air_time_landing(
     threshold: float,
     max_bonus: float,
 ) -> torch.Tensor:
-    """落步事件版抬脚奖励：只在脚落地的那一步给 `(腾空时长 - threshold)`，封顶 max_bonus。
+    """落步事件版抬脚奖励：只在脚落地的那一步给 `(腾空时长 - threshold)`，上限 max_bonus。
 
-    与官方 `feet_air_time` 的唯一区别是 `clamp(max=max_bonus)`：
-    没有封顶时，单次奖励随腾空时长线性增长，策略的最优反应是
-    "跳起来延长腾空"而不是"迈更多步"（速率 (air-t0)/air 随 air 单调升）。
-    封顶之后，腾空超过 threshold+max_bonus 就不再有额外收益，
-    多落地一次 = 多拿一次满分，迈步的步频才成为唯一收益来源。
+    与官方 `feet_air_time` 的唯一区别是 `clamp(max=max_bonus)`（上限）：
+    不设上限时单次奖励随腾空时长线性增长，策略的最优反应是
+    "跳起来延长腾空"而不是"迈更多步"。封顶之后，腾空超过
+    threshold+max_bonus 不再有额外收益，落地步频才是收益来源。
+
+    ★ 下限**刻意不设**（v3 的教训，2026-09-16）★
+    第一版写了 `.clamp(min=0.0)` —— 想法是"没迈够 0.2 s 就不给分"。
+    结果 v3 训练出第三种作弊步态【小碎步蹭走】：每次抬脚都只到
+    0.19 s 以下，落地奖励恒 0、悬空惩罚恒 0、打滑惩罚也小 —— 从第
+    300 轮起 feet_air_time 死在 0.0001，速度跟踪却有 97%。
+    官方原版对短步给【负分】(air-threshold < 0)，正是这个负梯度在
+    推着策略把步子迈大。**塑形奖励在当前行为附近必须有梯度，
+    "达不到标准就一分不给"等于在局部最优旁边挖了一道护城河。**
     """
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     first_contact = contact_sensor.compute_first_contact(env.step_dt)[:, sensor_cfg.body_ids]
     last_air_time = contact_sensor.data.last_air_time[:, sensor_cfg.body_ids]
-    reward = torch.sum(((last_air_time - threshold).clamp(min=0.0, max=max_bonus)) * first_contact, dim=1)
+    reward = torch.sum((last_air_time - threshold).clamp(max=max_bonus) * first_contact, dim=1)
     # 指令接近 0（不该迈步）时置 0，防"站着抬脚白拿分"
     reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
     return reward
