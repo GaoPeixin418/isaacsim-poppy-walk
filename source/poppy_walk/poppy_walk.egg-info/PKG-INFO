@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: poppy_walk
+Version: 0.1.0
+Summary: Isaac Lab tasks for the Poppy humanoid robot (stand / walk)
+Author: Peixin Gao
+Requires-Python: >=3.10
+Dynamic: author
+Dynamic: requires-python
+Dynamic: summary
