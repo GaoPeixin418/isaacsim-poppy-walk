@@ -72,9 +72,13 @@ def feet_hover_penalty(
     而"单腿跛行"里悬空脚的 current_air_time 一路涨到回合结束（20 s），
     惩罚强度远超任何奖励项 —— 这条路被直接封死。
 
-    返回负值（惩罚），使用时配负权重。
+    ★ 返回【正】的超出量，配【负】权重（与 feet_slide 同约定）★
+    v4 的教训（2026-09-17）：第一版返回负值 -sum(excess) 又配了负权重 -2.0，
+    乘出来是 +2.0/s —— "悬空惩罚"实际成了"悬空奖励"，v4 训出的单腿跛行
+    就是我亲手奖励出来的（训练日志铁证：feet_hover ≈ +0.001，恒正）。
+    Isaac Lab 奖励 = 权重 × 函数值 × dt，**符号约定必须在写第一行前想清楚**。
     """
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
     excess = (air_time - max_air_time).clamp(min=0.0, max=1.0)
-    return -torch.sum(excess, dim=1)
+    return torch.sum(excess, dim=1)
