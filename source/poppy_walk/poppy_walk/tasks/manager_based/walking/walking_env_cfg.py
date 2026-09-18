@@ -87,7 +87,8 @@ from isaaclab.utils import configclass
 import isaaclab.envs.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import feet_slide
 
-from .mdp import feet_air_time_landing, feet_hover_penalty
+from .mdp import (feet_air_time_landing, feet_hover_penalty,
+    feet_loading_symmetry, base_roll_penalty)
 
 from ....assets.poppy import POPPY_CFG, WALK_PELVIS_Z, walk_default_joint_pos
 from ..common import FOOT_BODIES, CommandsCfg, PoppyBaseEnvCfg, RewardsCfg
@@ -216,6 +217,29 @@ class WalkRewardsCfg(RewardsCfg):
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=FOOT_BODIES),
             "asset_cfg": SceneEntityCfg("robot", body_names=FOOT_BODIES),
         },
+    )
+    # ---- v6（2026-09-18）：承重对称 + 横滚，封堵"右倾踩空"失效模式 ----
+    #
+    # v5 失效：节律步态但整体右倾，左脚摆动最低点距地 ~7 mm 全程踩空
+    # （接触力恒 0）。训练时随机推力让左脚偶发擦地，重置 air_time 计时
+    # 还记"假落地"，使 feet_hover / feet_air_time 对其失明；探针已证明
+    # 资产对称（脚高差 0.13 mm），右倾是策略学出来的。
+    #   * feet_loading：2 s EMA 左右脚竖直力差 > 0.25 倍体重才罚，
+    #     正常交替步态不触发，跛行满额 -2.0/s；
+    #   * base_roll：横滚线性惩罚（0.15 rad 满额），把重心拉回双脚中间。
+    feet_loading = RewTerm(
+        func=feet_loading_symmetry,
+        weight=-2.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=FOOT_BODIES),
+            "ema_alpha": 0.99,
+            "asym_threshold": 0.25,
+        },
+    )
+    base_roll = RewTerm(
+        func=base_roll_penalty,
+        weight=-1.0,
+        params={"max_roll": 0.15},
     )
 
 

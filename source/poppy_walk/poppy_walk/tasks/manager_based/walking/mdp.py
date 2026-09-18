@@ -82,3 +82,67 @@ def feet_hover_penalty(
     air_time = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids]
     excess = (air_time - max_air_time).clamp(min=0.0, max=1.0)
     return torch.sum(excess, dim=1)
+
+
+# ================= v6 新增（2026-09-18）=================
+# v5 失效模式复盘：节律步态存在，但整体右倾，左脚摆动最低点悬在地面以上
+# ~7 mm，整个评估过程接触力恒 0（"踩空"）。训练时的随机推力会让左脚
+# 偶尔擦地——擦地瞬间 current_air_time 被清零、还会记一次"假落地"——
+# 所以 feet_hover_penalty 和 feet_air_time_landing 都对它失明。
+# 零动作探针（scripts/probe_zero.py）已证明资产左右对称（静止脚高差
+# 0.13 mm），右倾是策略自己学出来的。v6 从两个方向封堵：
+
+
+def feet_loading_symmetry(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    ema_alpha: float = 0.99,
+    asym_threshold: float = 0.25,
+) -> torch.Tensor:
+    """双脚承重对称性惩罚（左右脚竖直接触力的慢 EMA 差）。
+
+    用时间常数约 1/(1-alpha)*dt ~= 2 s 的 EMA 分别平滑左右脚竖直接触力，
+    惩罚 |EMA_L - EMA_R| / 总体重 超过 asym_threshold 的部分：
+      * 正常交替步态：左右 EMA 都围绕 mg/2 波动，短时交替分量被滤掉，
+        对称差 << 0.25 -> 不惩罚；
+      * 跛行：EMA_L -> 0、EMA_R -> mg，对称差 ~= 1.0 -> 满额惩罚；
+      * 偶发假擦地（力度小、时长短）对 2 s EMA 影响可忽略 -> 不失效。
+    阈值偏移（asym_threshold）保证惩罚只打"系统性跛行"，不打正常步态
+    的瞬时不对称。
+    """
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    fz = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2]  # (num_envs, 2)
+
+    # EMA 状态挂在 env 对象上（跨 step 存活；形状变化时自动重建）
+    if getattr(env, "_v6_load_ema", None) is None or env._v6_load_ema.shape != fz.shape:
+        env._v6_load_ema = fz.clone()
+    else:
+        # 回合刚开始的 env 重置 EMA，避免上一回合的跛行残差污染新回合
+        fresh = env.episode_length_buf <= 1
+        if fresh.any():
+            env._v6_load_ema[fresh] = fz[fresh]
+        env._v6_load_ema.mul_(ema_alpha).add_(fz, alpha=1.0 - ema_alpha)
+
+    # 总体重（kg * 9.81）做无量纲化，缓存一次
+    if getattr(env, "_v6_body_weight", None) is None:
+        masses = env.scene["robot"].root_physx_view.get_masses()
+        env._v6_body_weight = masses.sum(dim=1) * 9.81
+
+    asym = (env._v6_load_ema[:, 0] - env._v6_load_ema[:, 1]).abs() / env._v6_body_weight
+    return (asym - asym_threshold).clamp(min=0.0, max=1.0)
+
+
+def base_roll_penalty(
+    env: ManagerBasedRLEnv,
+    max_roll: float = 0.15,
+) -> torch.Tensor:
+    """基座横滚（侧倾）惩罚。
+
+    v5 的"左脚踩空 7 mm"根因是策略学出的右倾。本项给侧倾角一个线性
+    代价，把重心往双脚中间拉。横滚角从 projected_gravity_b 的 y 分量
+    反解：直立时 g_b=(0,0,-1)；纯横滚 phi 时 g_b=(0,-sin phi,-cos phi)，
+    故 phi = asin(-g_y)。返回值 clamp 到 [0,1]，配负权重使用。
+    """
+    g_b = env.scene["robot"].data.projected_gravity_b
+    roll = torch.asin((-g_b[:, 1]).clamp(-1.0, 1.0)).abs()
+    return (roll / max_roll).clamp(max=1.0)
