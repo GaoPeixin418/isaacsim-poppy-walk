@@ -75,6 +75,8 @@ parser.add_argument("--vy", type=float, default=0.0)
 parser.add_argument("--wz", type=float, default=0.0, help="指令偏航角速度 rad/s")
 parser.add_argument("--duration", type=float, default=12.0, help="评估时长（秒，仿真时间）")
 parser.add_argument("--out", type=str, default=None, help="输出目录")
+parser.add_argument("--stochastic", action="store_true",
+                    help="用训练同款采样动作（均值+噪声），而非确定性均值动作")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 
@@ -155,7 +157,13 @@ def main() -> None:
     agent_cfg = load_cfg_from_registry(args.task, "rsl_rl_cfg_entry_point")
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=DEVICE)
     runner.load(ckpt)
-    policy = runner.get_inference_policy(device=DEVICE)
+    if args.stochastic:
+        # 训练同款：ActorCritic.act() 内部按当前 std 采样（正态噪声），
+        # 用来判别"均值动作坍缩成单腿模式、采样动作才是正常步态"的可能
+        ac = getattr(runner.alg, "policy", None) or getattr(runner.alg, "actor_critic")
+        policy = ac.act
+    else:
+        policy = runner.get_inference_policy(device=DEVICE)
 
     unwrapped = env.unwrapped
     robot = unwrapped.scene["robot"]
