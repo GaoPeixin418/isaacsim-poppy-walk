@@ -124,9 +124,9 @@ def feet_loading_symmetry(
         env._v6_load_ema.mul_(ema_alpha).add_(fz, alpha=1.0 - ema_alpha)
 
     # 总体重（kg * 9.81）做无量纲化，缓存一次
-    if getattr(env, "_v6_body_weight", None) is None:
+    if getattr(env, "_v6_body_weight", None) is None or env._v6_body_weight.device != fz.device:
         masses = env.scene["robot"].root_physx_view.get_masses()
-        env._v6_body_weight = masses.sum(dim=1) * 9.81
+        env._v6_body_weight = masses.sum(dim=1).to(fz.device) * 9.81
 
     asym = (env._v6_load_ema[:, 0] - env._v6_load_ema[:, 1]).abs() / env._v6_body_weight
     return (asym - asym_threshold).clamp(min=0.0, max=1.0)
