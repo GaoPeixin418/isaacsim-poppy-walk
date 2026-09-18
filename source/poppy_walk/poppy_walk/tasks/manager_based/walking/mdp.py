@@ -146,3 +146,46 @@ def base_roll_penalty(
     g_b = env.scene["robot"].data.projected_gravity_b
     roll = torch.asin((-g_b[:, 1]).clamp(-1.0, 1.0)).abs()
     return (roll / max_roll).clamp(max=1.0)
+
+
+# ================= v7 (2026-09-18) =================
+# v6 教训: 惩罚是可定价的 -- 策略把左右承重差压在阈值边缘,
+# 交 -0.01/步 的罚款换 +1.46/步 的速度奖励. 终止不可定价:
+# 判死 = 后续所有速度奖励归零, 作弊模式从训练分布中物理删除.
+
+
+def single_leg_lean_done(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    ema_alpha: float = 0.99,
+    min_loading: float = 0.18,
+    warmup_s: float = 2.5,
+) -> torch.Tensor:
+    """单腿倾斜/踩空判死: 任一脚承重 EMA 持续低于 min_loading*体重 -> 终止回合.
+
+    与 feet_loading_symmetry 共用思路但状态独立(终止管理器与奖励管理器
+    调用顺序不保证, 各自维护 EMA 避免跨管理器依赖).
+    数值核算 (体重 W, dt=0.02, alpha=0.99 -> 时间常数 ~2 s):
+      * 正常交替步态: 每脚 EMA ~= 0.5W, 热身 2.5 s 时收敛 ~71% -> 0.36W > 0.18W, 安全
+      * 随机推力短暂卸载: EMA 从 0.5W 衰减到 0.18W 需 ~2 s 持续零承重, 推力不会造成
+      * 跛行(左脚 0N): 热身结束即判死
+    """
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    fz = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2]  # (num_envs, 2)
+
+    if getattr(env, "_v7_load_ema_term", None) is None or env._v7_load_ema_term.shape != fz.shape:
+        env._v7_load_ema_term = fz.clone()
+    else:
+        fresh = env.episode_length_buf <= 1
+        if fresh.any():
+            env._v7_load_ema_term[fresh] = fz[fresh]
+        env._v7_load_ema_term.mul_(ema_alpha).add_(fz, alpha=1.0 - ema_alpha)
+
+    if getattr(env, "_v7_body_weight", None) is None or env._v7_body_weight.device != fz.device:
+        masses = env.scene["robot"].root_physx_view.get_masses()
+        env._v7_body_weight = masses.sum(dim=1).to(fz.device) * 9.81
+
+    loading_ratio = env._v7_load_ema_term / env._v7_body_weight.unsqueeze(1)  # (num_envs, 2)
+    in_warmup = (env.episode_length_buf * env.step_dt) < warmup_s
+    starving = (loading_ratio < min_loading).any(dim=1)
+    return starving & (~in_warmup)

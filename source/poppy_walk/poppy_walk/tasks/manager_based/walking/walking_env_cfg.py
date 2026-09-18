@@ -80,6 +80,7 @@ from __future__ import annotations
 
 import math
 
+from isaaclab.managers import DoneTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
@@ -88,10 +89,10 @@ import isaaclab.envs.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import feet_slide
 
 from .mdp import (feet_air_time_landing, feet_hover_penalty,
-    feet_loading_symmetry, base_roll_penalty)
+    feet_loading_symmetry, base_roll_penalty, single_leg_lean_done)
 
 from ....assets.poppy import POPPY_CFG, WALK_PELVIS_Z, walk_default_joint_pos
-from ..common import FOOT_BODIES, CommandsCfg, PoppyBaseEnvCfg, RewardsCfg
+from ..common import FOOT_BODIES, CommandsCfg, PoppyBaseEnvCfg, RewardsCfg, TerminationsCfg as CommonTerminationsCfg
 
 ##
 # 指令
@@ -249,11 +250,26 @@ class WalkRewardsCfg(RewardsCfg):
 
 
 @configclass
+class WalkTerminationsCfg(CommonTerminationsCfg):
+    """行走任务终止条件 = 通用终止 + 单腿倾斜判死 (v7)."""
+
+    single_leg_lean = DoneTerm(
+        func=single_leg_lean_done,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=FOOT_BODIES),
+            "min_loading": 0.18,
+            "warmup_s": 2.5,
+        },
+    )
+
+
+@configclass
 class PoppyWalkEnvCfg(PoppyBaseEnvCfg):
     """行走环境主配置。"""
 
     commands: WalkCommandsCfg = WalkCommandsCfg()
     rewards: WalkRewardsCfg = WalkRewardsCfg()
+    terminations: WalkTerminationsCfg = WalkTerminationsCfg()
 
     def __post_init__(self):
         super().__post_init__()
