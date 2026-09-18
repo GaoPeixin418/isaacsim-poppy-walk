@@ -80,7 +80,7 @@ from __future__ import annotations
 
 import math
 
-from isaaclab.managers import DoneTerm
+from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
