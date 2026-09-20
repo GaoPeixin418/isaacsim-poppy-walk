@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 
@@ -59,9 +60,23 @@ from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry  # noqa: E402
 
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-# 侧后方跟拍偏置：机器人沿 +x 走，相机停在它左侧后方
-CAM_OFFSET = (-1.2, 1.8, 0.9)   # eye 相对 base 的位置（稍微超前看侧面用 +x 偏置）
-LOOK_OFFSET = (0.3, 0.0, 0.0)   # 注视点稍微领先于机器人（看前进方向）
+# 正侧面跟拍偏置（**体坐标系**：y=解剖学正前方【相机标定实证】，x=身体右侧，z=上）
+# 经典步态分析视角：双腿摆动/支撑相在画面里最分明
+CAM_OFFSET = (2.0, -0.4, 0.6)    # eye 相对 base 的体坐标位置（右侧方、略靠后）
+LOOK_OFFSET = (0.0, 0.2, -0.05)  # 注视点略低于基座（画面中心偏腿）
+
+
+def quat_to_yaw(q: np.ndarray) -> float:
+    w, x, y, z = q
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def body_to_world(offset: tuple, yaw: float) -> np.ndarray:
+    """体坐标 xy 偏置按 yaw 旋转到世界系（z 不变）。"""
+    c, s = math.cos(yaw), math.sin(yaw)
+    return np.array([c * offset[0] - s * offset[1],
+                     s * offset[0] + c * offset[1],
+                     offset[2]])
 
 
 def pin_command(env, vx: float) -> None:
@@ -109,8 +124,9 @@ def main() -> None:
     for i in range(n_steps):
         # 先摆相机，再 step（step 内部触发本帧渲染）
         base = robot.data.root_pos_w[0].detach().cpu().numpy()
-        eye = (base + np.array(CAM_OFFSET)).tolist()
-        tgt = (base + np.array(LOOK_OFFSET)).tolist()
+        yaw = quat_to_yaw(robot.data.root_quat_w[0].detach().cpu().numpy())
+        eye = (base + body_to_world(CAM_OFFSET, yaw)).tolist()
+        tgt = (base + body_to_world(LOOK_OFFSET, yaw)).tolist()
         env.unwrapped.sim.set_camera_view(eye, tgt)
         with torch.inference_mode():
             actions = policy(obs)

@@ -66,13 +66,21 @@ D3 就用官方的 velocity locomotion 结构，把速度指令范围设成全 0
 ================================================================================
 指令范围为什么这么小
 ================================================================================
-  lin_vel_x ∈ (0.0, 0.35) m/s   正常行走速度。Poppy 腿长只有 0.386 m，
+  lin_vel_y ∈ (0.0, 0.35) m/s   正常行走速度。Poppy 腿长只有 0.386 m，
                                 步频/步幅的物理上限都低，"走得快"不是这个项目的目标。
-  lin_vel_y = (0.0, 0.0)        **刻意锁死为 0**。Poppy 的踝关节只有俯仰、
+  lin_vel_x = (0.0, 0.0)        **刻意锁死为 0**。Poppy 的踝关节只有俯仰、
                                 髋侧摆只有 ±30°，**横向是完全欠驱动的**，
                                 要求它侧移只会让策略在两个互相矛盾的目标间折中。
-                                把 y 指令锁 0，这一项反而变成一个有用的"别横向漂移"惩罚
+                                把 x 指令锁 0，这一项反而变成一个有用的"别横向漂移"惩罚
                                 （track_lin_vel_xy_exp 用的是 xy 范数）。
+
+  ⚠ v8 坐标系更正（2026-09-20，相机标定实验实证）：
+  **基座坐标系比解剖学朝向歪了 90°——解剖学正前方 = 基座 +y，不是 +x。**
+  v1–v7 一直把"前进"指令发在 x 通道上，等于命令机器人"向自己的右侧横移"，
+  策略精确执行了这条歪指令，学出一套 ~3 Hz 横向交叉步（蟹行角实测 −0.6°，
+  全部判卷指标对朝向盲，一路绿灯；肉眼看视频一帧就抓到）。
+  v8 起把前进指令换到 y 通道：锁定 x=0（防横漂）、y∈(0, 0.35)（真·前进）。
+  原先"锁 y 防侧移"的设计意图本身是对的，只是当时贴错了通道。
   ang_vel_z ∈ (−0.2, 0.2) rad/s 慢速转向。偏航靠 hip_z（±90° 行程）实现，做得到但不轻松。
                                 给太大会把注意力从"走起来"引开，D5 再按需要放开。
 """
@@ -123,8 +131,8 @@ class WalkCommandsCfg(CommandsCfg):
         heading_command=False,   # 直接采样 ang_vel_z，不用"航向角跟踪"那层间接目标
         debug_vis=False,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.0, 0.35),
-            lin_vel_y=(0.0, 0.0),
+            lin_vel_x=(0.0, 0.0),
+            lin_vel_y=(0.0, 0.35),
             ang_vel_z=(-0.2, 0.2),
             heading=(0.0, 0.0),
         ),
@@ -304,6 +312,6 @@ class PoppyWalkEnvCfg_PLAY(PoppyWalkEnvCfg):
         self.observations.policy.enable_corruption = False
         self.events.push_robot = None
 
-        self.commands.base_velocity.ranges.lin_vel_x = (0.25, 0.25)
-        self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 0.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (0.25, 0.25)
         self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
