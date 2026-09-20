@@ -172,6 +172,15 @@ def main() -> None:
     foot_ids, foot_names = robot.find_bodies(".*foot")
     print(f"[eval] 脚部刚体: {foot_names} (ids={foot_ids})")
 
+    # 注意: 接触力传感器的 body 顺序 ≠ 机器人本体的 body 顺序!
+    # net_forces_w 的列按传感器自己跟踪的 body 列表排(含 pelvis/大腿/小腿等全部刚体),
+    # 直接拿 robot 的 body id 去索引会把 r_shin 当成 l_foot(v7 判卷误诊事故, 2026-09-20:
+    # 左脚"全程 0N 悬空"其实是右小腿不受力, 实际机器人在正常交替双脚)。
+    # 取力必须用 sensor.find_bodies 得到传感器自己的下标。
+    contact_sensor = unwrapped.scene.sensors["contact_forces"]
+    force_ids, force_names = contact_sensor.find_bodies(foot_names)
+    print(f"[eval] 传感器力下标: {force_names} (ids={force_ids})")
+
     # ---- 起步：让默认姿态先稳住，再钉指令 ----
     # 直接给非零指令，策略会从"站立默认姿态"突然被要求"往前走"，
     # 头几步是瞬态，统计进去会污染数据。先空跑 0.5 s 让它进入节律。
@@ -201,8 +210,8 @@ def main() -> None:
         rec["t"].append(i * unwrapped.step_dt)
         # body_pos_w: (N, B, 3)，取世界坐标 z 看脚抬多高
         rec["foot_z"].append(robot.data.body_pos_w[:, foot_ids, 2].cpu().numpy())
-        # 接触力范数：0 表示离地
-        force = unwrapped.scene["contact_forces"].data.net_forces_w[:, foot_ids, :]
+        # 接触力范数：0 表示离地（必须用传感器自己的 body 下标, 见上方注释）
+        force = contact_sensor.data.net_forces_w[:, force_ids, :]
         rec["foot_force"].append(force.norm(dim=-1).cpu().numpy())
         # 基座速度（基座系）→ 取 x 前进方向
         rec["base_lin_vel"].append(robot.data.root_lin_vel_b[:, :3].cpu().numpy())
