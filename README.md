@@ -15,6 +15,9 @@
 
 步态：~3 Hz 小步快走式动态步态（步长 ~9.6 cm，抬脚 6~10 mm）。
 
+**行走视频**：[`docs/videos/poppy_walk_v7.mp4`](docs/videos/poppy_walk_v7.mp4)
+（12 s / 720p / 相机侧跟拍，`scripts/record_walk.py` headless 离屏渲染录制）。
+
 ## 方法要点
 
 - **资产工程**：URDF → USD 全流程审计（刚体/关节/限位/镜像轴/单位），修掉左膝镜像轴 bug；

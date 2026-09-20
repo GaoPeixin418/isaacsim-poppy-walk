@@ -177,6 +177,10 @@ x/y 方向 ±0.3 m/s 的速度扰动；对 2.6 kg 的 Poppy 是明显推搡）�
 - **v5 历史回测**：✅ 已完成（2026-09-20）——v5 实为双脚交替但右倾偏载（左 7.6N/30% vs 右 18.6N/73%），
   印证了"测量工具误诊"的同时保留了 v6/v7 迭代方向的正确性。
 - **宿主机故障**：训练期间 9GPU 宿主机 PCIe 降级（详见 D5 训练日志与本报告 §1），已提工单。
+  2026-09-20 晚间宿主传输带宽自行恢复（pinned H2D 0.5 → 12.1 GB/s），
+  但 X 桌面 GUI 渲染仍死锁（carb.tasking 空转，4 次尝试症状一致）；
+  **行走视频改由 headless 离屏渲染 + 相机跟随录制**（`scripts/record_walk.py`，
+  成品 `docs/videos/poppy_walk_v7.mp4`）——该路径不依赖 X 桌面，稳定可复现。
 - **范围边界**：未做 sim2real、地形行走、动态高速步态；抗扰仅在仿真内验证。
 
 ---
@@ -196,4 +200,9 @@ bash scripts/run.sh scripts/d5_eval.py --headless \
 # 终止项活体探查（怀疑终止/奖励项行为时）
 bash scripts/run.sh scripts/probe_term.py --headless \
   --checkpoint logs/rsl_rl/poppy_walk/<run>/model_2400.pt
+
+# 录行走视频（相机跟随，headless 离屏渲染，无需 X 桌面）
+bash scripts/run.sh scripts/record_walk.py --headless --enable_cameras \
+  --checkpoint logs/rsl_rl/poppy_walk/<run>/model_2400.pt \
+  --seconds 12 --out out/videos
 ```
