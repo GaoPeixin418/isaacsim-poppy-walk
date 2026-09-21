@@ -132,7 +132,7 @@ class WalkCommandsCfg(CommandsCfg):
         debug_vis=False,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
             lin_vel_x=(0.0, 0.0),
-            lin_vel_y=(0.0, 0.35),
+            lin_vel_y=(-0.35, 0.0),
             ang_vel_z=(-0.2, 0.2),
             heading=(0.0, 0.0),
         ),
@@ -313,5 +313,5 @@ class PoppyWalkEnvCfg_PLAY(PoppyWalkEnvCfg):
         self.events.push_robot = None
 
         self.commands.base_velocity.ranges.lin_vel_x = (0.0, 0.0)
-        self.commands.base_velocity.ranges.lin_vel_y = (0.25, 0.25)
+        self.commands.base_velocity.ranges.lin_vel_y = (-0.25, -0.25)
         self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)

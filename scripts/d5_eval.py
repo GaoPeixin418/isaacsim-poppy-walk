@@ -70,7 +70,7 @@ parser.add_argument("--task", type=str, default="Poppy-Walk-Play-v0")
 parser.add_argument("--checkpoint", type=str, default=None,
                     help="不传则自动挑 logs/rsl_rl/<实验名>/ 下训练轮数最大的")
 parser.add_argument("--num_envs", type=int, default=8)
-parser.add_argument("--vx", type=float, default=0.2, help="指令前进速度 m/s")
+parser.add_argument("--vx", type=float, default=-0.2, help="指令前进速度 m/s")
 parser.add_argument("--vy", type=float, default=0.0)
 parser.add_argument("--wz", type=float, default=0.0, help="指令偏航角速度 rad/s")
 parser.add_argument("--duration", type=float, default=12.0, help="评估时长（秒，仿真时间）")

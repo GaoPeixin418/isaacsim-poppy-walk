@@ -36,7 +36,7 @@ parser = argparse.ArgumentParser(description="Record Poppy walking video with a 
 parser.add_argument("--task", type=str, default="Poppy-Walk-Play-v0")
 parser.add_argument("--checkpoint", type=str, required=True)
 parser.add_argument("--num_envs", type=int, default=1)
-parser.add_argument("--vx", type=float, default=0.2)
+parser.add_argument("--vx", type=float, default=-0.25)
 parser.add_argument("--seconds", type=float, default=12.0)
 parser.add_argument("--out", type=str, default=os.path.join(_REPO, "out", "videos"))
 AppLauncher.add_app_launcher_args(parser)
