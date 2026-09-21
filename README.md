@@ -49,6 +49,7 @@
 | `docs/D2-asset-report.md` | USD 资产构建与标定 |
 | `docs/D3-standing-report.md` | 站立任务（里程碑 1，含镜像轴 bug 排查） |
 | `docs/D5-walk-report.md` | 行走任务（里程碑 2，v1–v9 完整失效模式史 + 两次朝向更正） |
+| `docs/tech_report_poppy_walk.md` | **English tech report**（arXiv-style：failure-mode taxonomy, priceable penalties vs termination, evaluator auditing） |
 | `docs/local-setup.md` | 环境复现手册 |
 
 ## 快速复现
