@@ -128,11 +128,15 @@ def pin_command(env, vx: float, vy: float, wz: float) -> None:
       而每步的 command 都是 manager 在 env.step() 内部算出来的 ——
       在外部赋值会被下一步的 compute() 覆盖。所以直接把重采样周期设成无限大，
       这样就只有我们写进去的那一个指令。
+
+    v8 坐标系更正（2026-09-21）：解剖学正前方 = 基座 +y（相机标定实验实证）。
+    --vx 参数语义改为"前进速度"，实际写进指令的 y 通道；x 通道（解剖学横向）锁 0。
+    v1–v7 曾把它钉在 x 通道，等于让策略横着走——v8 修正。
     """
     term = env.unwrapped.command_manager.get_term("base_velocity")
     term._resampling_time_range = (1e9, 1e9)  # 永不重采样
-    term.command[:, 0] = vx
-    term.command[:, 1] = vy
+    term.command[:, 0] = vx  # 解剖学横向（应恒为 0）
+    term.command[:, 1] = vy  # 解剖学前向
     term.command[:, 2] = wz
     # 同时关掉"随机站立的那些环境"（它们会被强行置零指令）
     if hasattr(term, "cfg") and hasattr(term.cfg, "rel_standing_envs"):
@@ -190,7 +194,8 @@ def main() -> None:
         actions = policy(obs)
         obs, _, _, _ = env.step(actions)
 
-    pin_command(unwrapped, args.vx, args.vy, args.wz)
+    # v8 坐标系更正：--vx 语义 = 前进速度，写进 y 通道；x（解剖学横向）恒 0
+    pin_command(unwrapped, 0.0, args.vx, args.wz)
     obs, _ = env.get_observations()
 
     # ---- 记录 ----
@@ -239,7 +244,7 @@ def main() -> None:
     metrics = {
         "task": args.task,
         "checkpoint": os.path.relpath(ckpt, _REPO),
-        "command": {"vx": args.vx, "vy": args.vy, "wz": args.wz},
+        "command": {"forward_vy": args.vx, "lateral_vx": 0.0, "wz": args.wz},
         "duration_s": args.duration,
         "num_envs": args.num_envs,
         "survival": {
@@ -248,10 +253,12 @@ def main() -> None:
             "frac_survived_full": float(alive[-1].mean()),
         },
         "velocity": {
-            "note": "基座坐标系下的【瞬时】速度，是策略跟踪指令的直接依据",
-            "cmd_vx": args.vx,
-            "mean_vx": float(blv[..., 0][alive].mean()),
-            "std_vx": float(blv[..., 0][alive].std()),
+            "note": "基座坐标系下的【瞬时】速度；v8 起前进方向 = 基座 +y（相机标定实证）",
+            "cmd_forward": args.vx,
+            "mean_vy": float(blv[..., 1][alive].mean()),
+            "std_vy": float(blv[..., 1][alive].std()),
+            "mean_vx_lateral": float(blv[..., 0][alive].mean()),
+            "std_vx_lateral": float(blv[..., 0][alive].std()),
         },
         "base_height": {
             "mean": float(h[alive].mean()),
@@ -341,9 +348,10 @@ def main() -> None:
 
         ax = axes[2]
         for e in range(n_env):
-            ax.plot(t, np.where(alive_np[:, e], blv[:, e, 0], np.nan), lw=1.0, label=f"env{e} vx")
-        ax.axhline(args.vx, color="k", ls="--", lw=1, label="command")
-        ax.set_ylabel("base vx [m/s]")
+            ax.plot(t, np.where(alive_np[:, e], blv[:, e, 1], np.nan), lw=1.0, label=f"env{e} vy")
+            ax.plot(t, np.where(alive_np[:, e], blv[:, e, 0], np.nan), lw=0.6, alpha=0.4, color="gray")
+        ax.axhline(args.vx, color="k", ls="--", lw=1, label="command (forward)")
+        ax.set_ylabel("base vy [m/s] (gray=vx drift)")
         ax.legend(fontsize=7)
         ax.grid(alpha=0.3)
 
@@ -373,11 +381,12 @@ def main() -> None:
     s = metrics["survival"]
     print("\n" + "=" * 68)
     print(f"任务            : {args.task}")
-    print(f"指令速度        : vx={args.vx} m/s")
+    print(f"指令速度        : 前进 vy={args.vx} m/s（基座 +y = 解剖学前向）")
     print(f"存活            : 平均 {s['mean_alive_time_s']:.2f} s / 最短 {s['min_alive_time_s']:.2f} s"
           f"  （跑满全程的环境比例 {s['frac_survived_full'] * 100:.1f}%）")
-    print(f"实际前进速度    : {metrics['velocity']['mean_vx']:.3f} ± {metrics['velocity']['std_vx']:.3f} m/s"
-          f"  （指令 {args.vx}，基座系瞬时速度）")
+    print(f"实际前进速度    : {metrics['velocity']['mean_vy']:.3f} ± {metrics['velocity']['std_vy']:.3f} m/s"
+          f"  （指令 {args.vx}，基座系瞬时 vy；横向漂移 vx = "
+          f"{metrics['velocity']['mean_vx_lateral']:.3f}）")
     d = metrics["displacement"]
     print(f"净位移速度      : {d['mean_speed_m_s']:.3f} m/s"
           f"（{d['mean_distance_m']:.2f} m / {s['mean_alive_time_s']:.1f} s）")

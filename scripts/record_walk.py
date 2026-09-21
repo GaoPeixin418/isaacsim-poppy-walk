@@ -80,11 +80,15 @@ def body_to_world(offset: tuple, yaw: float) -> np.ndarray:
 
 
 def pin_command(env, vx: float) -> None:
-    """钉死速度指令（同 d5_eval.py）。"""
+    """钉死速度指令（同 d5_eval.py）。
+
+    v8 坐标系更正：前进指令写进 y 通道（解剖学正前方 = 基座 +y，相机标定实证）。
+    v1–v7 曾钉在 x 通道——等于命令机器人横着走。
+    """
     term = env.unwrapped.command_manager.get_term("base_velocity")
     term._resampling_time_range = (1e9, 1e9)
-    term.command[:, 0] = vx
-    term.command[:, 1] = 0.0
+    term.command[:, 0] = 0.0
+    term.command[:, 1] = vx
     term.command[:, 2] = 0.0
     if hasattr(term, "cfg") and hasattr(term.cfg, "rel_standing_envs"):
         term.cfg.rel_standing_envs = 0.0
